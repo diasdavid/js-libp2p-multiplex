@@ -4,31 +4,41 @@ const pipe = require('it-pipe')
 const pushable = require('it-pushable')
 const log = require('debug')('libp2p:mplex')
 const abortable = require('abortable-iterator')
+const errCode = require('err-code')
 const Coder = require('./coder')
 const restrictSize = require('./restrict-size')
 const { MessageTypes, MessageTypeNames } = require('./message-types')
 const createStream = require('./stream')
 
+/**
+ * @typedef {import('libp2p-interfaces/src/stream-muxer/types').MuxedStream} MuxedStream
+ * @typedef {import('libp2p-interfaces/src/stream-muxer/types').Sink} Sink
+ */
+
+/**
+ * @typedef {object} MplexOptions
+ * @property {(stream: MuxedStream) => void} [onStream] - Called whenever an inbound stream is created
+ * @property {(stream: MuxedStream) => void} [onStreamEnd] - Called whenever a stream ends
+ * @property {AbortSignal} [signal] - An AbortController signal
+ */
+
 class Mplex {
   /**
    * @class
-   * @param {object} options
-   * @param {function(*)} options.onStream - Called whenever an inbound stream is created
-   * @param {function(*)} options.onStreamEnd - Called whenever a stream ends
-   * @param {AbortSignal} options.signal - An AbortController signal
+   * @param {MplexOptions} options
    */
-  constructor (options) {
+  constructor (options = {}) {
     options = options || {}
     options = typeof options === 'function' ? { onStream: options } : options
 
     this._streamId = 0
     this._streams = {
       /**
-       * @type {Map<number, *>} Stream to ids map
+       * @type {Map<number, MuxedStream>} Stream to ids map
        */
       initiators: new Map(),
       /**
-       * @type {Map<number, *>} Stream to ids map
+       * @type {Map<number, MuxedStream>} Stream to ids map
        */
       receivers: new Map()
     }
@@ -58,7 +68,7 @@ class Mplex {
   /**
    * Returns a Map of streams and their ids
    *
-   * @returns {Map<number,*>}
+   * @returns {Map<number, MuxedStream>}
    */
   get streams () {
     // Inbound and Outbound streams may have the same ids, so we need to make those unique
@@ -90,10 +100,10 @@ class Mplex {
    * Called whenever an inbound stream is created
    *
    * @private
-   * @param {*} options
+   * @param {object} options
    * @param {number} options.id
    * @param {string} options.name
-   * @returns {*} A muxed stream
+   * @returns MuxedStream} A muxed stream
    */
   _newReceiverStream ({ id, name }) {
     const registry = this._streams.receivers
@@ -108,25 +118,32 @@ class Mplex {
    * @param {number} options.id
    * @param {string} options.name
    * @param {string} options.type
-   * @param {Map<number, *>} options.registry - A map of streams to their ids
-   * @returns {*} A muxed stream
+   * @param {Map<number, MuxedStream>} options.registry - A map of streams to their ids
+   * @returns {MuxedStream} A muxed stream
    */
   _newStream ({ id, name, type, registry }) {
     if (registry.has(id)) {
       throw new Error(`${type} stream ${id} already exists!`)
     }
+
     log('new %s stream %s %s', type, id, name)
+
     const send = msg => {
+      if (!registry.has(id)) {
+        throw errCode(new Error('the stream is not in the muxer registry, it may have already been closed'), 'ERR_STREAM_DOESNT_EXIST')
+      }
       if (log.enabled) {
         log('%s stream %s %s send', type, id, name, { ...msg, type: MessageTypeNames[msg.type], data: msg.data && msg.data.slice() })
       }
       return this.source.push(msg)
     }
+
     const onEnd = () => {
       log('%s stream %s %s ended', type, id, name)
       registry.delete(id)
       this.onStreamEnd && this.onStreamEnd(stream)
     }
+
     const stream = createStream({ id, name, send, type, onEnd, maxMsgSize: this._options.maxMsgSize })
     registry.set(id, stream)
     return stream
@@ -137,7 +154,7 @@ class Mplex {
    * also have their size restricted. All messages will be varint decoded.
    *
    * @private
-   * @returns {*} Returns an iterable sink
+   * @returns {Sink} Returns an iterable sink
    */
   _createSink () {
     return async source => {
@@ -216,14 +233,17 @@ class Mplex {
     switch (type) {
       case MessageTypes.MESSAGE_INITIATOR:
       case MessageTypes.MESSAGE_RECEIVER:
+        // We got data from the remote, push it into our local stream
         stream.source.push(data)
         break
       case MessageTypes.CLOSE_INITIATOR:
       case MessageTypes.CLOSE_RECEIVER:
-        stream.close()
+        // We should expect no more data from the remote, stop reading
+        stream.closeRead()
         break
       case MessageTypes.RESET_INITIATOR:
       case MessageTypes.RESET_RECEIVER:
+        // Stop reading and writing to the stream immediately
         stream.reset()
         break
       default:

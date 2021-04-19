@@ -13,6 +13,11 @@ const ERR_MPLEX_STREAM_RESET = 'ERR_MPLEX_STREAM_RESET'
 const ERR_MPLEX_STREAM_ABORT = 'ERR_MPLEX_STREAM_ABORT'
 
 /**
+ * @typedef {import('libp2p-interfaces/src/stream-muxer/types').MuxedStream} MuxedStream
+ * @typedef {import('libp2p-interfaces/src/stream-muxer/types').Sink} Sink
+ */
+
+/**
  * @param {object} options
  * @param {number} options.id
  * @param {string} options.name
@@ -20,7 +25,7 @@ const ERR_MPLEX_STREAM_ABORT = 'ERR_MPLEX_STREAM_ABORT'
  * @param {function(Error)} [options.onEnd] - Called whenever the stream ends
  * @param {string} [options.type] - One of ['initiator','receiver']. Defaults to 'initiator'
  * @param {number} [options.maxMsgSize] - Max size of an mplex message in bytes. Writes > size are automatically split. Defaults to 1MB
- * @returns {*} A muxed stream
+ * @returns {MuxedStream} A muxed stream
  */
 module.exports = ({ id, name, send, onEnd = () => {}, type = 'initiator', maxMsgSize = MAX_MSG_SIZE }) => {
   const abortController = new AbortController()
@@ -56,9 +61,17 @@ module.exports = ({ id, name, send, onEnd = () => {}, type = 'initiator', maxMsg
     }
   }
 
+  /** @type {MuxedStream} */
   const stream = {
+    // Close for both Reading and Writing
+    close: () => Promise.all([
+      stream.closeRead(),
+      stream.closeWrite()
+    ]),
     // Close for reading
-    close: () => stream.source.end(),
+    closeRead: () => stream.source.end(),
+    // Close for writing
+    closeWrite: () => stream.sink([]),
     // Close for reading and writing (local error)
     abort: err => {
       log('%s stream %s abort', type, name, err)

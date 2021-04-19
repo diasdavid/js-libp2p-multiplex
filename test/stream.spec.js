@@ -232,7 +232,7 @@ describe('stream', () => {
       map(msg => {
         // when the initiator sends a CLOSE message, we call close
         if (msg.type === MessageTypes.CLOSE_INITIATOR) {
-          receiver.close()
+          receiver.closeRead()
         }
         return msgToBuffer(msg)
       }),
