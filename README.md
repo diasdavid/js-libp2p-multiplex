@@ -139,11 +139,17 @@ In addition to `sink` and `source` properties, this stream also has the followin
 
 #### `stream.close()`
 
-Closes the stream for **reading**. If iterating over the source of this stream in a `for await of` loop, it will return (exit the loop) after any buffered data has been consumed.
+Closes the stream for **reading** and **writing**. If iterating over the source of this stream in a `for await of` loop, it will return (exit the loop) after any buffered data has been consumed.
+
+#### `stream.closeRead()`
+
+Closes the stream for **reading**, but still allows writing. This should not typically be called by application code, but may be used for one way, push only streams.
 
 This function is called automatically by the muxer when it receives a `CLOSE` message from the remote.
 
-The source will return normally, the sink will continue to consume.
+#### `stream.closeWrite()`
+
+Closes the stream for **writing**, but still allows reading. This is useful for when you only ever wish to read from a stream.
 
 #### `stream.abort([err])`
 

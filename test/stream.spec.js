@@ -230,9 +230,9 @@ describe('stream', () => {
     pipe(
       receiver,
       map(msg => {
-        // when the initiator sends a CLOSE message, we call close
+        // when the initiator sends a CLOSE message, we close for reading
         if (msg.type === MessageTypes.CLOSE_INITIATOR) {
-          receiver.close()
+          receiver.closeRead()
         }
         return msgToBuffer(msg)
       }),

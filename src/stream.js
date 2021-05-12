@@ -57,8 +57,15 @@ module.exports = ({ id, name, send, onEnd = () => {}, type = 'initiator', maxMsg
   }
 
   const stream = {
+    // Close for both Reading and Writing
+    close: () => Promise.all([
+      stream.closeRead(),
+      stream.closeWrite()
+    ]),
     // Close for reading
-    close: () => stream.source.end(),
+    closeRead: () => stream.source.end(),
+    // Close for writing
+    closeWrite: () => stream.sink([]),
     // Close for reading and writing (local error)
     abort: err => {
       log('%s stream %s abort', type, name, err)

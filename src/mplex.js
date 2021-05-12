@@ -4,6 +4,7 @@ const pipe = require('it-pipe')
 const pushable = require('it-pushable')
 const log = require('debug')('libp2p:mplex')
 const abortable = require('abortable-iterator')
+const errCode = require('err-code')
 const Coder = require('./coder')
 const restrictSize = require('./restrict-size')
 const { MessageTypes, MessageTypeNames } = require('./message-types')
@@ -117,6 +118,9 @@ class Mplex {
     }
     log('new %s stream %s %s', type, id, name)
     const send = msg => {
+      if (!registry.has(id)) {
+        throw errCode(new Error('the stream is not in the muxer registry, it may have already been closed'), 'ERR_STREAM_DOESNT_EXIST')
+      }
       if (log.enabled) {
         log('%s stream %s %s send', type, id, name, { ...msg, type: MessageTypeNames[msg.type], data: msg.data && msg.data.slice() })
       }
@@ -216,14 +220,17 @@ class Mplex {
     switch (type) {
       case MessageTypes.MESSAGE_INITIATOR:
       case MessageTypes.MESSAGE_RECEIVER:
+        // We got data from the remote, push it into our local stream
         stream.source.push(data)
         break
       case MessageTypes.CLOSE_INITIATOR:
       case MessageTypes.CLOSE_RECEIVER:
-        stream.close()
+        // We should expect no more data from the remote, stop reading
+        stream.closeRead()
         break
       case MessageTypes.RESET_INITIATOR:
       case MessageTypes.RESET_RECEIVER:
+        // Stop reading and writing to the stream immediately
         stream.reset()
         break
       default:
